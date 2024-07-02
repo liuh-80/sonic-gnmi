@@ -324,7 +324,7 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 		swsscommon.DeleteFieldValuePair(pair)
 	}
 
-	log.V(2).Warningf("[PERF_TEST] DbSetTable start table %s, key %s", table, key)
+	log.Errorf("[PERF_TEST] DbSetTable start table %s, key %s", table, key)
 
 	pt := c.GetTable(table)
 	RetryHelper(
@@ -333,18 +333,20 @@ func (c *MixedDbClient) DbSetTable(table string, key string, values map[string]s
 					return ProducerStateTableSetWrapper(pt, key, vec)
 				})
 
-	log.V(2).Warningf("[PERF_TEST] DbSetTable end table %s, key %s", table, key)
+	log.Errorf("[PERF_TEST] DbSetTable end table %s, key %s", table, key)
 	return nil
 }
 
 func (c *MixedDbClient) DbDelTable(table string, key string) error {
 	pt := c.GetTable(table)
+	log.Errorf("[PERF_TEST] DbDelTable start table %s, key %s", table, key)
 	RetryHelper(
 				c.zmqClient,
 				func () error {
 					return ProducerStateTableDeleteWrapper(pt, key) 
 				})
 
+	log.Errorf("[PERF_TEST] DbDelTable end table %s, key %s", table, key)
 	return nil
 }
 
