@@ -52,10 +52,16 @@ advancetls:
 	# Because depency conflict, this project can't install advancedtls mod
 	rm -rf grpc-go
 	git clone --depth 1 https://github.com/grpc/grpc-go.git -b v1.64.x
+	# copy CRL related code, and change packet name
 	cp ./grpc-go/security/advancedtls/crl_provider.go gnmi_server/crl_provider.go
 	sed -i -e 's/package advancedtls/package gnmi/g' gnmi_server/crl_provider.go
 	cp ./grpc-go/security/advancedtls/crl.go gnmi_server/crl.go
 	sed -i -e 's/package advancedtls/package gnmi/g' gnmi_server/crl.go
+	# copy CRL test data to tmp folder, because go test will run in /tmp folder
+	mkdir -p /tmp/testdata/crl
+	cp ./grpc-go/security/advancedtls/testdata/crl/3.crl /tmp/testdata/crl/test.crl
+	cp ./grpc-go/security/advancedtls/testdata/crl/revokedInt.pem /tmp/testdata/crl/revokedInt.pem
+	cp ./grpc-go/security/advancedtls/testdata/crl/unrevoked.pem /tmp/testdata/crl/unrevoked.pem
 	rm -rf grpc-go
 
 $(GO_DEPS): go.mod $(PATCHES) swsscommon_wrap advancetls

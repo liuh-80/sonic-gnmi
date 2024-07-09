@@ -57,6 +57,7 @@ type TelemetryConfig struct {
 	WithMasterArbitration *bool
 	WithSaveOnSet         *bool
 	IdleConnDuration      *int
+	EnableCrl             *bool
 }
 
 func main() {
@@ -165,6 +166,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		WithMasterArbitration: fs.Bool("with-master-arbitration", false, "Enables master arbitration policy."),
 		WithSaveOnSet:         fs.Bool("with-save-on-set", false, "Enables save-on-set."),
 		IdleConnDuration:      fs.Int("idle_conn_duration", 5, "Seconds before server closes idle connections"),
+		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -227,6 +229,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.Threshold = int(*telemetryCfg.Threshold)
 	cfg.IdleConnDuration = int(*telemetryCfg.IdleConnDuration)
 	cfg.ConfigTableName = *telemetryCfg.ConfigTableName
+	cfg.EnableCrl = *telemetryCfg.EnableCrl
 
 	// TODO: After other dependent projects are migrated to ZmqPort, remove ZmqAddress
 	zmqAddress := *telemetryCfg.ZmqAddress
