@@ -635,6 +635,13 @@ func (c *MixedDbClient) getDbtablePath(path *gnmipb.Path, value *gnmipb.TypedVal
 	tblPath.tableName = ""
 	if len(stringSlice) > 1 {
 		tblPath.tableName = stringSlice[1]
+		// tables in COUNTERS_DB other than COUNTERS table doesn't have keys
+		// Insert a dummy table key
+		if tblPath.dbName == "COUNTERS_DB" && tblPath.tableName != "COUNTERS" {
+			index := 2
+			stringSlice = append(stringSlice[:index+1], stringSlice[index:]...)
+			stringSlice[index] = ""
+		}
 	}
 	tblPath.delimitor = separator
 	tblPath.operation = opRemove
@@ -1525,7 +1532,49 @@ func (c *MixedDbClient) OnceRun(q *queue.PriorityQueue, once chan struct{}, w *s
 }
 
 func (c *MixedDbClient) PollRun(q *queue.PriorityQueue, poll chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
-	return
+	c.w = w
+	defer c.w.Done()
+	c.q = q
+	c.channel = poll
+
+	for {
+		_, more := <-c.channel
+		if !more {
+			log.V(1).Infof("%v poll channel closed, exiting pollDb routine", c)
+			return
+		}
+		t1 := time.Now()
+		for _, gnmiPath := range c.paths {
+			tblPaths, err := c.getDbtablePath(gnmiPath, nil)
+			if err != nil {
+				log.V(2).Infof("Unable to get table path due to err: %v", err)
+				return
+			}
+			val, err := c.tableData2TypedValue(tblPaths, nil)
+			if err != nil {
+				log.V(2).Infof("Unable to create gnmi TypedValue due to err: %v", err)
+				return
+			}
+
+			spbv := &spb.Value{
+				Prefix:       c.prefix,
+				Path:         gnmiPath,
+				Timestamp:    time.Now().UnixNano(),
+				SyncResponse: false,
+				Val:          val,
+			}
+			c.q.Put(Value{spbv})
+			log.V(6).Infof("Added spbv #%v", spbv)
+		}
+
+		c.q.Put(Value{
+			&spb.Value{
+				Timestamp:    time.Now().UnixNano(),
+				SyncResponse: true,
+			},
+		})
+		log.V(4).Infof("Sync done, poll time taken: %v ms", int64(time.Since(t1)/time.Millisecond))
+	}
 }
 
 func (c *MixedDbClient) StreamRun(q *queue.PriorityQueue, stop chan struct{}, w *sync.WaitGroup, subscribe *gnmipb.SubscriptionList) {
