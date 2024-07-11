@@ -131,7 +131,7 @@ func ClientCertAuthenAndAuthor(ctx context.Context, serviceConfigTableName strin
 		err := VerifyCertCrl(tlsAuth.State)
 		if err != nil {
 			glog.Infof("[%s] Failed to verify cert with CRL; %v", rc.ID, err)
-			return ctx, status.Errorf(codes.Unauthenticated, "")
+			return ctx, err
 		}
 	}
 

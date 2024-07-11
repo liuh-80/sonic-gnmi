@@ -12,6 +12,9 @@ import (
 	"testing"
 	"time"
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestCrlExpireDuration(t *testing.T) {
@@ -135,7 +138,6 @@ func TestVerifyCertCrl(t *testing.T) {
 	defer ReleaseCrlCache()
 
 	mockGetCrlUrls := gomonkey.ApplyFunc(GetCrlUrls, func(cert x509.Certificate) []string {
-		fmt.Printf("mockGetCrlUrls invoked\n")
 		return []string{ "http://test.crl.com/test.crl" }
 	})
 	defer mockGetCrlUrls.Reset()
@@ -188,4 +190,45 @@ func TestVerifyCertCrlWithDownloadFailed(t *testing.T) {
 	if err == nil {
 		t.Errorf("TestVerifyCertCrl verify unrevoked cert should failed when CRL can't download.")
 	}
+}
+
+func TestClientCertAuthenAndAuthorWithCrl(t *testing.T) {
+	// initialize err variable
+	err := status.Error(codes.Unauthenticated, "")
+
+	// when config table is empty, will authorize with PopulateAuthStruct
+	mockpopulate := gomonkey.ApplyFunc(PopulateAuthStruct, func(username string, auth *common_utils.AuthInfo, r []string) error {
+		return nil
+	})
+	defer mockpopulate.Reset()
+
+	// mock for revoked cert
+	mockVerifyCertCrl := gomonkey.ApplyFunc(VerifyCertCrl, func(tlsConnState tls.ConnectionState) error {
+		return status.Error(codes.Unauthenticated, "Peer certificate revoked")
+	})
+
+	// check auth with nil cert name
+	ctx, cancel := CreateAuthorizationCtx()
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "", true)
+	if err == nil {
+		t.Errorf("Auth with revoked cert should failed.")
+	}
+
+	cancel()
+	mockVerifyCertCrl.Reset()
+
+	// mock for unrevoked cert
+	mockVerifyCertCrl = gomonkey.ApplyFunc(VerifyCertCrl, func(tlsConnState tls.ConnectionState) error {
+		return nil
+	})
+
+	// check auth with nil cert name
+	ctx, cancel = CreateAuthorizationCtx()
+	ctx, err = ClientCertAuthenAndAuthor(ctx, "", true)
+	if err != nil {
+		t.Errorf("Auth with revoked cert should failed: %v", err)
+	}
+
+	cancel()
+	mockVerifyCertCrl.Reset()
 }

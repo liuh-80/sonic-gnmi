@@ -4234,7 +4234,7 @@ func CreateAuthorizationCtx() (context.Context, context.CancelFunc) {
 	return ctx, cancel
 }
 
-	func TestClientCertAuthenAndAuthor(t *testing.T) {
+func TestClientCertAuthenAndAuthor(t *testing.T) {
 	if !swsscommon.SonicDBConfigIsInit() {
 		swsscommon.SonicDBConfigInitialize()
 	}
