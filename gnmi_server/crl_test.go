@@ -10,8 +10,23 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 	"github.com/agiledragon/gomonkey/v2"
 )
+
+func TestCrlExpireDuration(t *testing.T) {
+	duration := GetCrlExpireDuration()
+	if duration != DEFAULT_CRL_EXPIRE_DURATION {
+		t.Errorf("TestCrlExpireDuration test failed, default expire duration incorrect.")
+	}
+
+	newDuration := 60 * time.Second
+	SetCrlExpireDuration(newDuration)
+	duration = GetCrlExpireDuration()
+	if duration != newDuration {
+		t.Errorf("TestCrlExpireDuration test failed, change expire duration failed.")
+	}
+}
 
 func TestCrlCache(t *testing.T) {
 	InitCrlCache()
@@ -28,6 +43,14 @@ func TestCrlCache(t *testing.T) {
 
 	if cacheItem != nil {
 		t.Errorf("TestCrlCache test failed, crl content incorrect.")
+	}
+	
+	// test CRL expired and remove
+	AppendCrlToCache("http://test.crl.com/test.crl", rawCRL)
+	RemoveExpiredCrl()
+	_, exist = CrlCache["http://test.crl.com/test.crl"]
+	if exist {
+		t.Errorf("TestCrlCache test failed, expired crl should removed.")
 	}
 
 	// test CRL does not exist
@@ -54,14 +77,6 @@ func TestCrlCache(t *testing.T) {
 
 	if len(cacheItem.crl) != len(rawCRL) {
 		t.Errorf("TestCrlCache test failed, crl content incorrect.")
-	}
-}
-
-func TestGetLocalCrlPath(t *testing.T) {
-	localPath := GetLocalCrlPath("http://test.crl.com/test.crl")
-	if localPath != "/etc/sonic/crl/94036a88af7ef33596a9eaa41850bcb8.crl" {
-		t.Errorf(localPath)
-		t.Errorf("GetLocalCrlPath test failed.")
 	}
 }
 
@@ -149,5 +164,28 @@ func TestVerifyCertCrl(t *testing.T) {
 	err = VerifyCertCrl(tlsConnState)
 	if err != nil {
 		t.Errorf("TestVerifyCertCrl verify unrevoked cert failed.")
+	}
+}
+
+
+func TestVerifyCertCrlWithDownloadFailed(t *testing.T) {
+	InitCrlCache()
+	defer ReleaseCrlCache()
+
+	mockGetCrlUrls := gomonkey.ApplyFunc(GetCrlUrls, func(cert x509.Certificate) []string {
+		return []string{ "http://test.crl.com/test.crl" }
+	})
+	defer mockGetCrlUrls.Reset()
+
+	mockTryDownload := gomonkey.ApplyFunc(TryDownload, func(url string) bool {
+		return false
+	})
+	defer mockTryDownload.Reset()
+
+	// test valid cert,should failed because download CRL failed
+	tlsConnState := CreateConnectionState("/tmp/testdata/crl/unrevoked.pem")
+	err := VerifyCertCrl(tlsConnState)
+	if err == nil {
+		t.Errorf("TestVerifyCertCrl verify unrevoked cert should failed when CRL can't download.")
 	}
 }

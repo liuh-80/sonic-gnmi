@@ -1,14 +1,10 @@
 package gnmi
 
 import (
-	"crypto/md5"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
-	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 	"github.com/sonic-net/sonic-gnmi/common_utils"
 	"github.com/sonic-net/sonic-gnmi/swsscommon"
@@ -20,7 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const CRL_EXPIRE_DURATION time.Duration = 24 * 60* 60 * time.Second
+const DEFAULT_CRL_EXPIRE_DURATION time.Duration = 24 * 60* 60 * time.Second
 
 type Crl struct {
 	thisUpdate   time.Time
@@ -30,6 +26,9 @@ type Crl struct {
 
 // CRL content cache
 var CrlCache map[string]*Crl = nil
+
+// CRL content cache
+var CrlDxpireDuration time.Duration = DEFAULT_CRL_EXPIRE_DURATION
 
 func InitCrlCache() {
 	if CrlCache == nil {
@@ -52,10 +51,24 @@ func AppendCrlToCache(url string, rawCRL []byte) {
 	CrlCache[url] = crl
 }
 
+func GetCrlExpireDuration() time.Duration {
+	return CrlDxpireDuration
+}
+
+func SetCrlExpireDuration(duration time.Duration) {
+	CrlDxpireDuration = duration
+}
+
 
 func CrlExpired(crl *Crl) bool {
 	now := time.Now()
-	expireTime := crl.thisUpdate.Add(CRL_EXPIRE_DURATION)
+	expireTime := crl.thisUpdate.Add(GetCrlExpireDuration())
+	// CRL expiresion policy follow the policy of Get-CRLFreshness command in following doc:
+	// 		https://learn.microsoft.com/en-us/archive/blogs/russellt/get-crlfreshness
+	// The policy are:
+	//      1. CRL expired when current time is after CRL expiresion time, which defined in "Next CRL Publish" extension.
+	//      2. CRL expired when cache item expired, default expire value is 24 hours, as compare Get-CRLFreshness using 4 days.
+	// Because CRL cached in memory, GNMI support OnDemand CRL referesh by restart GNMI service.
 	return now.After(expireTime) || now.After(crl.nextUpdate)
 }
 
@@ -125,35 +138,20 @@ func ClientCertAuthenAndAuthor(ctx context.Context, serviceConfigTableName strin
 	return ctx, nil
 }
 
-func GetLocalCrlPath(crlUrl string) string {
-	crlHash := md5.Sum([]byte(crlUrl))
-	localFileName := hex.EncodeToString(crlHash[:])
-	return fmt.Sprintf("/etc/sonic/crl/%s.crl", localFileName)
-}
-
 func TryDownload(url string) bool {
-	destPath := GetLocalCrlPath(url)
-	out, err := os.Create(destPath)
-	defer out.Close()
-	if err != nil {
-		glog.Infof("Create local CRL: %s failed: %v", destPath, err)
+	resp, err := http.Get(url)
+	defer resp.Body.Close()
+	if err != nil || resp.StatusCode != http.StatusOK {
+		glog.Infof("Download CRL: %s failed: %v", url, err)
 		return false
 	}
 
-	resp, err := http.Get(url)
-	defer resp.Body.Close()
+	crlContent, err := io.ReadAll(resp.Body) 
 	if err != nil {
 		glog.Infof("Download CRL: %s failed: %v", url, err)
 		return false
 	}
 
-	_, err = io.Copy(out, resp.Body)
-	if err != nil {
-		glog.Infof("Download CRL: %s to local: %s failed: %v", url, destPath, err)
-		return false
-	}
-	
-	crlContent, _ := os.ReadFile(destPath)
 	AppendCrlToCache(url, crlContent)
 
 	return true

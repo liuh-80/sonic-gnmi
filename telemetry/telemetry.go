@@ -58,6 +58,7 @@ type TelemetryConfig struct {
 	WithSaveOnSet         *bool
 	IdleConnDuration      *int
 	EnableCrl             *bool
+	CrlExpireDuration     *int
 }
 
 func main() {
@@ -167,6 +168,7 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 		WithSaveOnSet:         fs.Bool("with-save-on-set", false, "Enables save-on-set."),
 		IdleConnDuration:      fs.Int("idle_conn_duration", 5, "Seconds before server closes idle connections"),
 		EnableCrl:             fs.Bool("enable_crl", false, "Enable certificate revocation list"),
+		CrlExpireDuration:     fs.Int("crl_expire_duration", 86400, "Certificate revocation list cache expire duration"),
 	}
 
 	fs.Var(&telemetryCfg.UserAuth, "client_auth", "Client auth mode(s) - none,cert,password")
@@ -230,6 +232,8 @@ func setupFlags(fs *flag.FlagSet) (*TelemetryConfig, *gnmi.Config, error) {
 	cfg.IdleConnDuration = int(*telemetryCfg.IdleConnDuration)
 	cfg.ConfigTableName = *telemetryCfg.ConfigTableName
 	cfg.EnableCrl = *telemetryCfg.EnableCrl
+
+	gnmi.SetCrlExpireDuration(time.Duration(*telemetryCfg.CrlExpireDuration) * time.Second)
 
 	// TODO: After other dependent projects are migrated to ZmqPort, remove ZmqAddress
 	zmqAddress := *telemetryCfg.ZmqAddress
