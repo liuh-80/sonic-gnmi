@@ -59,22 +59,28 @@ func SetCrlExpireDuration(duration time.Duration) {
 	CrlDxpireDuration = duration
 }
 
-
 func CrlExpired(crl *Crl) bool {
 	now := time.Now()
 	expireTime := crl.thisUpdate.Add(GetCrlExpireDuration())
+	glog.Infof("CrlExpired expireTime: %s, now: %s", expireTime.Format(time.ANSIC), now.Format(time.ANSIC))
 	// CRL expiresion policy follow the policy of Get-CRLFreshness command in following doc:
 	// 		https://learn.microsoft.com/en-us/archive/blogs/russellt/get-crlfreshness
 	// The policy are:
 	//      1. CRL expired when current time is after CRL expiresion time, which defined in "Next CRL Publish" extension.
-	//      2. CRL expired when cache item expired, default expire value is 24 hours, as compare Get-CRLFreshness using 4 days.
 	// Because CRL cached in memory, GNMI support OnDemand CRL referesh by restart GNMI service.
-	return now.After(expireTime) || now.After(crl.nextUpdate)
+	return now.After(expireTime)
+}
+
+func CrlNeedUpdate(crl *Crl) bool {
+	now := time.Now()
+	glog.Infof("CrlNeedUpdate nextUpdate: %s, now: %s", crl.nextUpdate.Format(time.ANSIC), now.Format(time.ANSIC))
+	return now.After(crl.nextUpdate)
 }
 
 func RemoveExpiredCrl() {
 	for mapkey, crl := range(CrlCache) {
 		if CrlExpired(crl) {
+			glog.Infof("RemoveExpiredCrl key: %s", mapkey)
 			delete(CrlCache, mapkey)
 		}
 	}
@@ -83,14 +89,23 @@ func RemoveExpiredCrl() {
 func SearchCrlCache(url string) (bool, *Crl) {
 	crl, exist := CrlCache[url]
 	if !exist {
+		glog.Infof("SearchCrlCache not found cache for url: %s", url)
 		return false, nil
 	}
 
 	if CrlExpired(crl) {
+		glog.Infof("SearchCrlCache crl expired: %s", url)
 		delete(CrlCache, url)
 		return false, nil
 	}
 
+	if CrlNeedUpdate(crl) {
+		glog.Infof("SearchCrlCache crl need update: %s", url)
+		delete(CrlCache, url)
+		return false, nil
+	}
+
+	glog.Infof("SearchCrlCache found cache for url: %s", url)
 	return true, crl
 }
 
@@ -139,8 +154,13 @@ func ClientCertAuthenAndAuthor(ctx context.Context, serviceConfigTableName strin
 }
 
 func TryDownload(url string) bool {
+	glog.Infof("Download CRL start: %s", url)
 	resp, err := http.Get(url)
-	defer resp.Body.Close()
+
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+
 	if err != nil || resp.StatusCode != http.StatusOK {
 		glog.Infof("Download CRL: %s failed: %v", url, err)
 		return false
@@ -152,13 +172,14 @@ func TryDownload(url string) bool {
 		return false
 	}
 
+	glog.Infof("Download CRL: %s successed", url)
 	AppendCrlToCache(url, crlContent)
 
 	return true
 }
 
 func GetCrlUrls(cert x509.Certificate) []string {
-	glog.Infof("Get Crl Urls for cert: %v", cert)
+	glog.Infof("Get Crl Urls for cert: %v", cert.CRLDistributionPoints)
 	return cert.CRLDistributionPoints
 }
 
@@ -180,8 +201,10 @@ func CreateStaticCRLProvider() *StaticCRLProvider {
 	crlArray := make([][]byte, 1)
 	for mapkey, item := range(CrlCache) {
 		if CrlExpired(item) {
+			glog.Infof("CreateStaticCRLProvider remove expired crl: %s", mapkey)
 			delete(CrlCache, mapkey)
 		} else {
+			glog.Infof("CreateStaticCRLProvider add crl: %s content: %v", mapkey, item.crl)
 			crlArray = append(crlArray, item.crl)
 		}
 	}
@@ -190,6 +213,7 @@ func CreateStaticCRLProvider() *StaticCRLProvider {
 }
 
 func VerifyCertCrl(tlsConnState tls.ConnectionState) error {
+	InitCrlCache()
 	// Check if any CRL already exist in local
 	crlUriArray := GetCrlUrls(*tlsConnState.VerifiedChains[0][0])
 	downloaded := DownloadNotCachedCrl(crlUriArray)
@@ -210,6 +234,7 @@ func VerifyCertCrl(tlsConnState tls.ConnectionState) error {
 		return status.Error(codes.Unauthenticated, "Peer certificate revoked")
 	}
 
+	glog.Infof("VerifyCertCrl verify cert passed: %v", crlUriArray)
 	return nil
 }
 
