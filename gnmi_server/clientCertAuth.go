@@ -184,17 +184,20 @@ func GetCrlUrls(cert x509.Certificate) []string {
 }
 
 func DownloadNotCachedCrl(crlUrlArray []string) bool {
+	crlAvaliable := false
     for _, crlUrl := range crlUrlArray{
 		exist, _ := SearchCrlCache(crlUrl)
-		if !exist {
+		if exist {
+			crlAvaliable = true
+		} else {
 			downloaded := TryDownload(crlUrl)
-			if !downloaded {
-				return false
+			if downloaded {
+				crlAvaliable = true
 			}
 		}
     }
 
-	return true
+	return crlAvaliable
 }
 
 func CreateStaticCRLProvider() *StaticCRLProvider {
@@ -216,8 +219,15 @@ func VerifyCertCrl(tlsConnState tls.ConnectionState) error {
 	InitCrlCache()
 	// Check if any CRL already exist in local
 	crlUriArray := GetCrlUrls(*tlsConnState.VerifiedChains[0][0])
-	downloaded := DownloadNotCachedCrl(crlUriArray)
-	if !downloaded {
+	if len(crlUriArray) == 0 {
+		glog.Infof("Cert does not contains and CRL distribution points")
+		return nil
+	}
+
+	crlAvaliable := DownloadNotCachedCrl(crlUriArray)
+	if !crlAvaliable {
+		// Every certificate will contain multiple CRL distribution points.
+		// If all CRLs are not available, the certificate validation should be blocked.
 		glog.Infof("VerifyCertCrl can't download CRL and verify cert: %v", crlUriArray)
 		return status.Errorf(codes.Unauthenticated, "Can't download CRL and verify cert")
 	}
